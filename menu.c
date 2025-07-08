@@ -85,14 +85,17 @@ static bool parse_color(const char *color, uint32_t *result) {
 // Parse menu options from command line arguments.
 void menu_getopts(struct menu *menu, int argc, char *argv[]) {
 	const char *usage =
-		"Usage: wmenu [-biPv] [-f font] [-l lines] [-o output] [-p prompt]\n"
-		"\t[-N color] [-n color] [-M color] [-m color] [-S color] [-s color]\n";
+		"Usage: wmenu [-bciPv] [-f font] [-l lines] [-o output] [-p prompt]\n"
+		"\t[-N color] [-n color] [-M color] [-m color] [-S color] [-s color] [-w minwidth]\n";
 
 	int opt;
-	while ((opt = getopt(argc, argv, "bhiPvf:l:o:p:N:n:M:m:S:s:")) != -1) {
+	while ((opt = getopt(argc, argv, "bchiPvf:l:o:p:N:n:M:m:S:s:w:")) != -1) {
 		switch (opt) {
 		case 'b':
-			menu->bottom = true;
+			menu->position = POSITION_BOTTOM;
+			break;
+		case 'c':
+			menu->position = POSITION_CENTER;
 			break;
 		case 'i':
 			menu->strncmp = strncasecmp;
@@ -143,6 +146,13 @@ void menu_getopts(struct menu *menu, int argc, char *argv[]) {
 		case 's':
 			if (!parse_color(optarg, &menu->selectionfg)) {
 				fprintf(stderr, "Invalid selection foreground color: %s", optarg);
+			}
+			break;
+		case 'w':
+			menu->minwidth = atoi(optarg);
+			if (menu->minwidth < 0) {
+				fprintf(stderr, "Invalid minimum width: %s", optarg);
+				exit(EXIT_FAILURE);
 			}
 			break;
 		default:

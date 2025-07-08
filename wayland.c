@@ -448,14 +448,34 @@ int menu_run(struct menu *menu) {
 
 	uint32_t anchor = ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
 		ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
-	if (menu->bottom) {
-		anchor |= ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+
+	switch (menu->position) {
+
+		case POSITION_BOTTOM:
+			anchor |= ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+			break;
+		case POSITION_TOP: 
+			anchor |= ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
+			break;
+		case POSITION_CENTER:
+			anchor |= ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+			// we will handle this in rendering.
+			break;
+	}
+
+
+	if (menu->position == POSITION_CENTER) {
+		calc_widths(menu);
+
+		menu->width = menu->promptw + menu->inputw + 2 * menu->padding;
+		menu->width = MAX(menu->width, menu->minwidth); // Ensure minimum width
+		zwlr_layer_surface_v1_set_margin(layer_surface, -1, -1, -1, -1);
+		zwlr_layer_surface_v1_set_size(layer_surface, menu->width, menu->height);
 	} else {
-		anchor |= ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
+		zwlr_layer_surface_v1_set_size(layer_surface, 0, menu->height);
 	}
 
 	zwlr_layer_surface_v1_set_anchor(layer_surface, anchor);
-	zwlr_layer_surface_v1_set_size(layer_surface, 0, menu->height);
 	zwlr_layer_surface_v1_set_exclusive_zone(layer_surface, -1);
 	zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, true);
 	zwlr_layer_surface_v1_add_listener(layer_surface, &layer_surface_listener, context);

@@ -27,10 +27,20 @@ struct page {
 	struct page *next;  // next page
 };
 
+enum e_position {
+	POSITION_TOP,
+	POSITION_BOTTOM,
+	POSITION_CENTER,
+};
+
+typedef enum e_position POSITION;
+
 // Menu state.
 struct menu {
 	// Whether the menu appears at the bottom of the screen
-	bool bottom;
+	POSITION position;
+	// The minimum width of the menu (relevant for center position)
+	int minwidth;
 	// The function used to match menu items
 	int (*strncmp)(const char *, const char *, size_t);
 	// Whether the input is a password

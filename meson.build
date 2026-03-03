@@ -7,26 +7,32 @@ project(
 		'c_std=c11',
 		'warning_level=2',
 		'werror=true',
-	]
+	],
 )
 
 cc = meson.get_compiler('c')
 
-add_project_arguments(cc.get_supported_arguments([
-	'-DVERSION="@0@"'.format(meson.project_version()),
+add_project_arguments(
+	cc.get_supported_arguments(
+		[
+			'-DVERSION="@0@"'.format(meson.project_version()),
 
-	'-Wno-missing-field-initializers',
-	'-Wno-unused-parameter',
-	'-Wundef',
-	'-Wvla',
-]), language : 'c')
+			'-Wno-missing-field-initializers',
+			'-Wno-unused-parameter',
+			'-Wundef',
+			'-Wvla',
+		],
+	),
+	language: 'c',
+)
 
-cairo           = dependency('cairo')
-pango           = dependency('pango')
-pangocairo      = dependency('pangocairo')
-wayland_client  = dependency('wayland-client')
-wayland_protos  = dependency('wayland-protocols')
-xkbcommon       = dependency('xkbcommon')
+cairo = dependency('cairo')
+pango = dependency('pango')
+pangocairo = dependency('pangocairo')
+wayland_client = dependency('wayland-client')
+wayland_protos = dependency('wayland-protocols')
+xkbcommon = dependency('xkbcommon')
+luajit = dependency('luajit')
 
 rt = cc.find_library('rt')
 
@@ -67,6 +73,23 @@ executable(
 		'wmenu-run.c',
 	),
 	dependencies: [
+		cairo,
+		client_protos,
+		pango,
+		pangocairo,
+		rt,
+		wayland_client,
+		wayland_protos,
+		xkbcommon,
+	],
+	install: true,
+)
+
+executable(
+	'wmenu-lua',
+	files('menu.c', 'pango.c', 'pool-buffer.c', 'render.c', 'wayland.c', 'wmenu-lua.c'),
+	dependencies: [
+		luajit,
 		cairo,
 		client_protos,
 		pango,

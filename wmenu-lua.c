@@ -1,3 +1,4 @@
+#include "lua.h"
 #define _POSIX_C_SOURCE 200809L
 
 #include <luajit-2.1/lauxlib.h>
@@ -43,9 +44,7 @@ void set_failure() {
   pthread_mutex_unlock(&lock);
 }
 
-struct state {
-  char *program;
-};
+struct menu *menu_opts;
 
 void *run_menu(void *arg) {
   struct menu *m = (struct menu *)arg;
@@ -56,6 +55,83 @@ void *run_menu(void *arg) {
   return NULL;
 }
 
+void throw_option_error(lua_State *L, char *error)  {
+  char *errorstring = malloc(sizeof( char) * 200);
+
+  sprintf(errorstring, "error parsing options: %s", error);
+  lua_pushstring(L, errorstring); 
+  lua_error(L);
+}
+
+int set_option(lua_State *L, const char *name) {
+  char *error = malloc(sizeof (char) * 150);
+
+  if (!strcmp(name, "font")) {
+    if (!lua_isstring(L, -1)) {
+      sprintf(error, "bad type for font, expeced string");
+      throw_option_error(L, error);
+    }
+
+    const char *font = lua_tostring(L, -1);
+
+    int font_len = strlen(font);
+
+    char *option = malloc(sizeof (char) * font_len);
+
+    menu_opts->font = strcpy(option, font);
+
+    return 0;
+  }
+
+  if (!strcmp(name, "lines")) {
+    if (!lua_isnumber(L, -1)) {
+      sprintf(error, "bad type for lines, expeced number");
+      throw_option_error(L, error);
+    }
+
+    int lines = (int) lua_tonumber(L, -1); // we round down.. who cares
+    
+    menu_opts->lines = lines;
+
+    return 0;
+  }
+
+  sprintf(error, "unrecognized option: %s", name);
+  throw_option_error(L, error);
+
+  return 1;
+}
+
+lua_fn(config) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+
+  lua_pushnil(L); 
+
+  while (lua_next(L, -2)) {
+    lua_pushvalue(L, -2);
+
+    const char *key = lua_tostring(L, -1);
+
+    lua_pop(L, 1);
+
+    if (set_option(L, key)) {
+      return 1;
+    }
+
+    lua_pop(L, 1);
+  }
+
+  return 0;
+}
+
+void write_menu_opts(struct menu *m) {
+  if (menu_opts->font) { // only write if not NULL
+    m->font = menu_opts->font;
+  }
+  if (menu_opts->lines) { // only write if not 0
+    m->lines = menu_opts->lines;
+  }
+}
 
 lua_fn(menu) {
   luaL_checktype(L, 1, LUA_TTABLE);
@@ -64,17 +140,16 @@ lua_fn(menu) {
 
   struct menu *m = menu_create(set_result);
   m->position = POSITION_CENTER;
-  m->font = "FiraCodeNerdFont Mono Regular 18 @wght=400";
-  m->lines = len;
   m->minwidth = 400;
+  write_menu_opts(m);
 
-	int height = get_font_height(m->font);
-	m->line_height = height + 2;
-	m->height = m->line_height;
-	if (m->lines > 0) {
-		m->height += m->height * m->lines;
-	}
-	m->padding = height / 2;
+  int height = get_font_height(m->font);
+  m->line_height = height + 2;
+  m->height = m->line_height;
+  if (m->lines > 0) {
+	m->height += m->height * m->lines;
+  }
+  m->padding = height / 2;
 
   for (int i = 0; i < len; i++) {
     lua_rawgeti(L, -1 * (i + 1), (i + 1));
@@ -92,6 +167,8 @@ lua_fn(menu) {
   }
   pthread_mutex_unlock(&lock);
 
+  has_result = false;
+
   menu_destroy(m);
 
   lua_pushstring(L, result);
@@ -101,24 +178,21 @@ lua_fn(menu) {
 
 void addLuaFunctions(lua_State *L) {
   add_lua_fn(menu);
+  add_lua_fn(config);
 }
 
 int main(int argc, char *argv[]) {
-  const char *usage = "Usage: wmenu-lua [-l file.lua]";
+  const char *usage = "Usage: wmenu-lua file.lua";
+  int ret = 0;
 
-  int opt;
-  char *file = 0;
-
-  while ((opt = getopt(argc, argv, "f:")) != -1) {
-    switch (opt) {
-    case 'f':
-      file = strdup(optarg);
-      break;
-    default:
-      fprintf(stderr, "%s\n", usage);
-      return 1;
-    }
+  if (argc != 2) {
+    printf("%s\n", usage);
+    return 1;
   }
+
+  char *file = argv[1];
+
+  menu_opts = calloc(1, sizeof(struct menu));
 
   lua_State *L = luaL_newstate();
   luaL_openlibs(L);
@@ -130,7 +204,32 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Lua error: %s\n", lua_tostring(L, -1));
   }
 
+  if (!lua_istable(L, -1)) {
+    ret = 1;
+    fprintf(stderr, "wmenu-lua: expected table as return value from input\n");
+    goto quit;
+  }
+
+  lua_getfield(L, -1, "run");
+
+  if (!lua_isfunction(L, -1)) {
+    ret = 1;
+    fprintf(stderr, "wmenu-lua: table should contain instance method run\n");
+    goto quit;
+  }
+
+  lua_pushvalue(L, -2);
+
+  lua_pcall(L, 1, LUA_MULTRET, 0);
+
+  if(lua_isstring(L, -1)) {
+    const char *s = lua_tostring(L, -1);
+
+    printf("%s\n", s);
+  }
+
+quit:
   lua_close(L);
 
-  return 0;
+  return ret;
 }

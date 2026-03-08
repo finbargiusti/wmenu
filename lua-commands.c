@@ -38,7 +38,6 @@ void write_menu_opts(struct menu *m) {
   }
 }
 
-
 int set_option(lua_State *L, const char *name) {
   char *error = malloc(sizeof (char) * 150);
 
@@ -92,6 +91,8 @@ void add_config_to_require_path(lua_State *L, char *config_dir) {
 }
 
 lua_fn(config) {
+  printf("calling config");
+
   luaL_checktype(L, 1, LUA_TTABLE);
 
   lua_pushnil(L); 
@@ -100,6 +101,8 @@ lua_fn(config) {
     lua_pushvalue(L, -2);
 
     const char *key = lua_tostring(L, -1);
+
+    printf("parsing option: %s\n", key);
 
     lua_pop(L, 1);
 
@@ -143,7 +146,16 @@ void *run_menu(void *arg) {
 lua_fn(menu) {
   luaL_checktype(L, 1, LUA_TTABLE);
 
-  int len = lua_objlen(L, 1);
+  // allow options to be passed as 2nd parameter
+  if (lua_istable(L, 2)) {
+    lua_getglobal(L, "config"); // options fn == -2
+    lua_pushvalue(L, 2); // options table == -1
+    lua_pcall(L, 1,  0, 0); // now result = -1
+  }
+
+  lua_pushvalue(L, 1); // push table onto stack
+
+  int len = lua_objlen(L, -1);
 
   struct menu *m = menu_create(return_result);
   m->position = POSITION_CENTER;

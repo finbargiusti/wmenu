@@ -102,6 +102,19 @@ int set_option(lua_State *L, const char *name) {
   return 1;
 }
 
+void add_config_to_require_path(lua_State *L, char *config_dir) {
+  lua_getglobal(L, "package");
+  lua_getfield(L, -1, "path");
+  const char *path_before = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  size_t new_path_len = strlen(config_dir) + strlen(path_before) + 8;
+  char *new_path = malloc(sizeof (char) * new_path_len);
+  sprintf(new_path, "%s;%s/?.lua", path_before, config_dir);
+  lua_pushstring(L, new_path);
+  lua_setfield(L, -2, "path");
+  lua_pop(L, 1); // returning to original state
+}
+
 lua_fn(config) {
   luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -182,25 +195,56 @@ void addLuaFunctions(lua_State *L) {
 }
 
 int main(int argc, char *argv[]) {
-  const char *usage = "Usage: wmenu-lua file.lua";
+  const char *usage = 
+    "Usage: wmenu-lua [-c path/to/config] <menu name>\n"
+    "Be default, looks for config in $HOME/.config/wmenu-lua/"
+  ;
+
   int ret = 0;
 
-  if (argc != 2) {
+  char *config_dir = malloc(sizeof (char) * 200);
+
+  char *xdg_config_home = getenv("HOME");
+
+  if (xdg_config_home == NULL) {
+    fprintf(stderr, "$HOME is not set!\n");
+    return 1;
+  }
+
+
+  sprintf(config_dir, "%s/.config/wmenu-lua", xdg_config_home);
+
+  int opt;
+  while ((opt = getopt(argc, argv, "c:")) != -1) {
+    if (opt == 'c') {
+      config_dir = optarg;
+    } else {
+      printf("%s\n", usage);
+      return 1;
+    }
+  }
+  
+  if (optind == -1 || argv[optind] == NULL) {
     printf("%s\n", usage);
     return 1;
   }
 
-  char *file = argv[1];
+  char *file_path = malloc(sizeof (char) * 200);
+
+  sprintf(file_path, "%s/%s.lua", config_dir, argv[optind]);
 
   menu_opts = calloc(1, sizeof(struct menu));
 
   lua_State *L = luaL_newstate();
+
   luaL_openlibs(L);
 
   addLuaFunctions(L); 
 
+  add_config_to_require_path(L, config_dir);
+
   // if null, reads from stdin
-  if (luaL_dofile(L, file)) {
+  if (luaL_dofile(L, file_path)) {
     fprintf(stderr, "Lua error: %s\n", lua_tostring(L, -1));
   }
 

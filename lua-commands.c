@@ -1,0 +1,184 @@
+#define _POSIX_C_SOURCE 200809L
+
+#include <luajit-2.1/lua.h>
+
+#include <stdlib.h>
+#include <string.h>
+#include <pango.h>
+
+#include "lua-commands.h"
+
+pthread_mutex_t lua_result_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t lua_result_cond = PTHREAD_COND_INITIALIZER;
+
+bool has_result = false;
+char *result;
+
+struct menu *menu_opts;
+
+void addLuaFunctions(lua_State *L) {
+  add_lua_fn(menu);
+  add_lua_fn(config);
+}
+
+void throw_option_error(lua_State *L, char *error)  {
+  char *errorstring = malloc(sizeof( char) * 200);
+
+  sprintf(errorstring, "error parsing options: %s", error);
+  lua_pushstring(L, errorstring); 
+  lua_error(L);
+}
+
+void write_menu_opts(struct menu *m) {
+  if (menu_opts->font) { // only write if not NULL
+    m->font = menu_opts->font;
+  }
+  if (menu_opts->lines) { // only write if not 0
+    m->lines = menu_opts->lines;
+  }
+}
+
+
+int set_option(lua_State *L, const char *name) {
+  char *error = malloc(sizeof (char) * 150);
+
+  if (!strcmp(name, "font")) {
+    if (!lua_isstring(L, -1)) {
+      sprintf(error, "bad type for font, expeced string");
+      throw_option_error(L, error);
+    }
+
+    const char *font = lua_tostring(L, -1);
+
+    int font_len = strlen(font);
+
+    char *option = malloc(sizeof (char) * font_len);
+
+    menu_opts->font = strcpy(option, font);
+
+    return 0;
+  }
+
+  if (!strcmp(name, "lines")) {
+    if (!lua_isnumber(L, -1)) {
+      sprintf(error, "bad type for lines, expeced number");
+      throw_option_error(L, error);
+    }
+
+    int lines = (int) lua_tonumber(L, -1); // we round down.. who cares
+    
+    menu_opts->lines = lines;
+
+    return 0;
+  }
+
+  sprintf(error, "unrecognized option: %s", name);
+  throw_option_error(L, error);
+
+  return 1;
+}
+
+void add_config_to_require_path(lua_State *L, char *config_dir) {
+  lua_getglobal(L, "package");
+  lua_getfield(L, -1, "path");
+  const char *path_before = lua_tostring(L, -1);
+  lua_pop(L, 1);
+  size_t new_path_len = strlen(config_dir) + strlen(path_before) + 8;
+  char *new_path = malloc(sizeof (char) * new_path_len);
+  sprintf(new_path, "%s;%s/?.lua", path_before, config_dir);
+  lua_pushstring(L, new_path);
+  lua_setfield(L, -2, "path");
+  lua_pop(L, 1); // returning to original state
+}
+
+lua_fn(config) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+
+  lua_pushnil(L); 
+
+  while (lua_next(L, -2)) {
+    lua_pushvalue(L, -2);
+
+    const char *key = lua_tostring(L, -1);
+
+    lua_pop(L, 1);
+
+    if (set_option(L, key)) {
+      return 1;
+    }
+
+    lua_pop(L, 1);
+  }
+
+  return 0;
+}
+
+void return_result(struct menu *m, char *r, bool exit) {
+  pthread_mutex_lock(&lua_result_lock);
+  result = strdup(r);
+  has_result = true;
+  m->exit = true;
+  pthread_cond_signal(&lua_result_cond);
+  pthread_mutex_unlock(&lua_result_lock);
+}
+
+void return_failure() {
+  pthread_mutex_lock(&lua_result_lock);
+  result = NULL;
+  has_result = true;
+  pthread_cond_signal(&lua_result_cond);
+  pthread_mutex_unlock(&lua_result_lock);
+}
+
+void *run_menu(void *arg) {
+  struct menu *m = (struct menu *)arg;
+  int status = menu_run(m);
+  if (status == EXIT_FAILURE) {
+    return_failure();
+  }
+  return NULL;
+}
+
+
+lua_fn(menu) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+
+  int len = lua_objlen(L, 1);
+
+  struct menu *m = menu_create(return_result);
+  m->position = POSITION_CENTER;
+  m->minwidth = 400;
+  write_menu_opts(m);
+
+  int height = get_font_height(m->font);
+  m->line_height = height + 2;
+  m->height = m->line_height;
+  if (m->lines > 0) {
+	m->height += m->height * m->lines;
+  }
+  m->padding = height / 2;
+
+  for (int i = 0; i < len; i++) {
+    lua_rawgeti(L, -1 * (i + 1), (i + 1));
+    luaL_checktype(L, -1, LUA_TSTRING);
+    const char *item = lua_tostring(L, -1);
+    menu_add_item(m, strdup(item));
+  }
+
+  pthread_t tid;
+  pthread_create(&tid, NULL, run_menu, m);
+
+  pthread_mutex_lock(&lua_result_lock);
+  while (!has_result) {
+    pthread_cond_wait(&lua_result_cond, &lua_result_lock);
+  }
+  pthread_mutex_unlock(&lua_result_lock);
+
+  has_result = false;
+
+  menu_destroy(m);
+
+  lua_pushstring(L, result);
+
+  return 1;
+}

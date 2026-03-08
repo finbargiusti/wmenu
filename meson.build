@@ -87,7 +87,7 @@ executable(
 
 executable(
 	'wmenu-lua',
-	files('menu.c', 'pango.c', 'pool-buffer.c', 'render.c', 'wayland.c', 'wmenu-lua.c'),
+	files('menu.c', 'pango.c', 'pool-buffer.c', 'render.c', 'wayland.c', 'lua-commands.c', 'wmenu-lua.c'),
 	dependencies: [
 		luajit,
 		cairo,

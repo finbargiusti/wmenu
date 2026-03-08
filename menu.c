@@ -65,7 +65,7 @@ void menu_destroy(struct menu *menu) {
 	free(menu);
 }
 
-static bool parse_color(const char *color, uint32_t *result) {
+bool parse_color(const char *color, uint32_t *result) {
 	if (color[0] == '#') {
 		++color;
 	}

@@ -2,9 +2,9 @@
 
 #include <luajit-2.1/lua.h>
 
+#include <pango.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pango.h>
 
 #include "lua-commands.h"
 
@@ -21,11 +21,11 @@ void addLuaFunctions(lua_State *L) {
   add_lua_fn(config);
 }
 
-void throw_option_error(lua_State *L, char *error)  {
-  char *errorstring = malloc(sizeof( char) * 200);
+void throw_option_error(lua_State *L, char *error) {
+  char *errorstring = malloc(sizeof(char) * 200);
 
   sprintf(errorstring, "error parsing options: %s", error);
-  lua_pushstring(L, errorstring); 
+  lua_pushstring(L, errorstring);
   lua_error(L);
 }
 
@@ -38,38 +38,77 @@ void write_menu_opts(struct menu *m) {
   }
 }
 
-int set_option(lua_State *L, const char *name) {
-  char *error = malloc(sizeof (char) * 150);
+// boilerplate == bad
 
-  if (!strcmp(name, "font")) {
-    if (!lua_isstring(L, -1)) {
-      sprintf(error, "bad type for font, expeced string");
-      throw_option_error(L, error);
-    }
+#define with_opt_type(opt_name, type, block)                                   \
+  if (!strcmp(name, #opt_name)) {                                              \
+    if (!lua_is##type(L, -1)) {                                                \
+      sprintf(error, "bad type for " #opt_name " , expected " #type);          \
+      throw_option_error(L, error);                                            \
+      return 1;                                                                \
+    }                                                                          \
+    do {                                                                       \
+      block;                                                                    \
+    } while (false);                                                           \
+    return 0;                                                                  \
+  }
 
+int set_option(lua_State *L, const char *name, struct menu *m) {
+  char *error = malloc(sizeof(char) * 150);
+
+  with_opt_type(font, string, {
     const char *font = lua_tostring(L, -1);
 
-    int font_len = strlen(font);
+    m->font = malloc(sizeof(char) * strlen(font));
+    strcpy(m->font, font);
+    printf("font: %s\n", m->font);
+  });
 
-    char *option = malloc(sizeof (char) * font_len);
+  with_opt_type(lines, number, {
+    int lines = (int)lua_tonumber(L, -1); // we round down.. who cares
 
-    menu_opts->font = strcpy(option, font);
+    m->lines = lines;
+  });
 
-    return 0;
-  }
+  with_opt_type(normalbg, string, {
+    const char *color = lua_tostring(L, -1);
 
-  if (!strcmp(name, "lines")) {
-    if (!lua_isnumber(L, -1)) {
-      sprintf(error, "bad type for lines, expeced number");
+    if (!parse_color(color, &m->normalbg)) {
+      sprintf(error, "invalid color %s", color);
       throw_option_error(L, error);
+      return 1;
     }
+  });
 
-    int lines = (int) lua_tonumber(L, -1); // we round down.. who cares
-    
-    menu_opts->lines = lines;
+  with_opt_type(normalfg, string, {
+    const char *color = lua_tostring(L, -1);
 
-    return 0;
-  }
+    if (!parse_color(color, &m->normalfg)) {
+      sprintf(error, "invalid color %s", color);
+      throw_option_error(L, error);
+      return 1;
+    }
+  });
+
+  with_opt_type(selectionbg, string, {
+    const char *color = lua_tostring(L, -1);
+
+    if (!parse_color(color, &m->selectionbg)) {
+      sprintf(error, "invalid color %s", color);
+      throw_option_error(L, error);
+      return 1;
+    }
+  });
+
+  with_opt_type(selectionfg, string, {
+    const char *color = lua_tostring(L, -1);
+
+    if (!parse_color(color, &m->selectionfg)) {
+      sprintf(error, "invalid color %s", color);
+      throw_option_error(L, error);
+      return 1;
+    }
+  });
 
   sprintf(error, "unrecognized option: %s", name);
   throw_option_error(L, error);
@@ -83,35 +122,86 @@ void add_config_to_require_path(lua_State *L, char *config_dir) {
   const char *path_before = lua_tostring(L, -1);
   lua_pop(L, 1);
   size_t new_path_len = strlen(config_dir) + strlen(path_before) + 8;
-  char *new_path = malloc(sizeof (char) * new_path_len);
+  char *new_path = malloc(sizeof(char) * new_path_len);
   sprintf(new_path, "%s;%s/?.lua", path_before, config_dir);
   lua_pushstring(L, new_path);
   lua_setfield(L, -2, "path");
   lua_pop(L, 1); // returning to original state
 }
 
-lua_fn(config) {
-  printf("calling config");
+void write_config(lua_State *L, struct menu *m) {
+  lua_getglobal(L, "_tableconfig");
 
-  luaL_checktype(L, 1, LUA_TTABLE);
+  if (!lua_istable(L, -1)) {
+    return;
+  }
 
-  lua_pushnil(L); 
+  lua_pushnil(L);
 
   while (lua_next(L, -2)) {
     lua_pushvalue(L, -2);
 
     const char *key = lua_tostring(L, -1);
 
-    printf("parsing option: %s\n", key);
-
     lua_pop(L, 1);
 
-    if (set_option(L, key)) {
-      return 1;
+    if (set_option(L, key, m)) {
+      return;
     }
 
     lua_pop(L, 1);
   }
+
+  lua_pop(L, 1);
+
+  return;
+}
+
+void table_merge_top(lua_State *L) {
+  /* stack:
+     -2 : dest
+     -1 : src
+  */
+
+  int dest = lua_gettop(L) - 1;
+  int src = lua_gettop(L);
+
+  luaL_checktype(L, dest, LUA_TTABLE);
+  luaL_checktype(L, src, LUA_TTABLE);
+
+  lua_pushnil(L); /* first key for lua_next */
+
+  while (lua_next(L, src) != 0) {
+    /* stack:
+       ... dest src key value
+    */
+
+    lua_pushvalue(L, -2); /* copy key */
+    lua_pushvalue(L, -2); /* copy value */
+
+    /* dest[key] = value */
+    lua_settable(L, dest);
+
+    /* remove original value, keep key for next iteration */
+    lua_pop(L, 1);
+  }
+}
+
+lua_fn(config) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+
+  lua_getglobal(L, "_tableconfig");
+  if (lua_istable(L, -1)) {
+    lua_getglobal(L, "_tableconfig");
+    lua_pushvalue(L, 1);
+    table_merge_top(L);
+    lua_pop(L, 1);
+  } else {
+    lua_pushvalue(L, 1);
+  }
+
+  lua_setglobal(L, "_tableconfig");
+  lua_pop(L, 1);
 
   return 0;
 }
@@ -142,15 +232,17 @@ void *run_menu(void *arg) {
   return NULL;
 }
 
-
 lua_fn(menu) {
   luaL_checktype(L, 1, LUA_TTABLE);
 
   // allow options to be passed as 2nd parameter
   if (lua_istable(L, 2)) {
     lua_getglobal(L, "config"); // options fn == -2
-    lua_pushvalue(L, 2); // options table == -1
-    lua_pcall(L, 1,  0, 0); // now result = -1
+    lua_pushvalue(L, 2);        // options table == -1
+    if (lua_pcall(L, 1, 0, 0)) {
+      lua_error(L);
+    }
+    // now result = -1
   }
 
   lua_pushvalue(L, 1); // push table onto stack
@@ -160,13 +252,14 @@ lua_fn(menu) {
   struct menu *m = menu_create(return_result);
   m->position = POSITION_CENTER;
   m->minwidth = 400;
-  write_menu_opts(m);
+
+  write_config(L, m);
 
   int height = get_font_height(m->font);
   m->line_height = height + 2;
   m->height = m->line_height;
   if (m->lines > 0) {
-	m->height += m->height * m->lines;
+    m->height += m->height * m->lines;
   }
   m->padding = height / 2;
 

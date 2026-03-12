@@ -68,23 +68,13 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Lua error: %s\n", lua_tostring(L, -1));
   }
 
-  if (!lua_istable(L, -1)) {
-    ret = 1;
-    fprintf(stderr, "wmenu-lua: expected table as return value from input\n");
-    goto quit;
-  }
-
-  lua_getfield(L, -1, "run");
-
   if (!lua_isfunction(L, -1)) {
     ret = 1;
-    fprintf(stderr, "wmenu-lua: table should contain instance method run\n");
+    fprintf(stderr, "wmenu-lua: expect function as return type\n");
     goto quit;
   }
 
-  lua_pushvalue(L, -2);
-
-  lua_pcall(L, 1, LUA_MULTRET, 0);
+  lua_pcall(L, 0, LUA_MULTRET, 0);
 
   if(lua_isstring(L, -1)) {
     const char *s = lua_tostring(L, -1);

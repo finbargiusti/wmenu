@@ -229,6 +229,7 @@ void *run_menu(void *arg) {
   if (status == EXIT_FAILURE) {
     return_failure();
   }
+  menu_destroy(m);
   return NULL;
 }
 
@@ -280,8 +281,6 @@ lua_fn(menu) {
   pthread_mutex_unlock(&lua_result_lock);
 
   has_result = false;
-
-  menu_destroy(m);
 
   lua_pushstring(L, result);
 

@@ -61,7 +61,6 @@ int set_option(lua_State *L, const char *name, struct menu *m) {
 
     m->font = malloc(sizeof(char) * strlen(font));
     strcpy(m->font, font);
-    printf("font: %s\n", m->font);
   });
 
   with_opt_type(lines, number, {
@@ -131,58 +130,31 @@ void add_config_to_require_path(lua_State *L, char *config_dir) {
 
 void write_config(lua_State *L, struct menu *m) {
   lua_getglobal(L, "_tableconfig");
-
   if (!lua_istable(L, -1)) {
     return;
   }
-
   lua_pushnil(L);
-
   while (lua_next(L, -2)) {
     lua_pushvalue(L, -2);
-
     const char *key = lua_tostring(L, -1);
-
     lua_pop(L, 1);
-
     if (set_option(L, key, m)) {
       return;
     }
-
     lua_pop(L, 1);
   }
-
   lua_pop(L, 1);
-
   return;
 }
 
 void table_merge_top(lua_State *L) {
-  /* stack:
-     -2 : dest
-     -1 : src
-  */
-
   int dest = lua_gettop(L) - 1;
   int src = lua_gettop(L);
-
-  luaL_checktype(L, dest, LUA_TTABLE);
-  luaL_checktype(L, src, LUA_TTABLE);
-
   lua_pushnil(L); /* first key for lua_next */
-
   while (lua_next(L, src) != 0) {
-    /* stack:
-       ... dest src key value
-    */
-
     lua_pushvalue(L, -2); /* copy key */
     lua_pushvalue(L, -2); /* copy value */
-
-    /* dest[key] = value */
     lua_settable(L, dest);
-
-    /* remove original value, keep key for next iteration */
     lua_pop(L, 1);
   }
 }

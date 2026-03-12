@@ -131,6 +131,7 @@ void add_config_to_require_path(lua_State *L, char *config_dir) {
 void write_config(lua_State *L, struct menu *m) {
   lua_getglobal(L, "_tableconfig");
   if (!lua_istable(L, -1)) {
+    lua_pop(L, 1);
     return;
   }
   lua_pushnil(L);

@@ -8,6 +8,9 @@
 
 #include "lua-commands.h"
 
+#define GLOBAL_OPTS "_t_globalconfig"
+#define TEMP_OPTS "_t_fnconfig"
+
 pthread_mutex_t lua_result_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t lua_result_cond = PTHREAD_COND_INITIALIZER;
 
@@ -48,7 +51,7 @@ void write_menu_opts(struct menu *m) {
       return 1;                                                                \
     }                                                                          \
     do {                                                                       \
-      block;                                                                    \
+      block;                                                                   \
     } while (false);                                                           \
     return 0;                                                                  \
   }
@@ -109,6 +112,51 @@ int set_option(lua_State *L, const char *name, struct menu *m) {
     }
   });
 
+  with_opt_type(promptbg, string, {
+    const char *color = lua_tostring(L, -1);
+
+    if (!parse_color(color, &m->promptbg)) {
+      sprintf(error, "invalid color %s", color);
+      throw_option_error(L, error);
+      return 1;
+    }
+  });
+
+  with_opt_type(promptfg, string, {
+    const char *color = lua_tostring(L, -1);
+
+    if (!parse_color(color, &m->promptfg)) {
+      sprintf(error, "invalid color %s", color);
+      throw_option_error(L, error);
+      return 1;
+    }
+  });
+
+  with_opt_type(prompt, string, {
+    const char *prompt = lua_tostring(L, -1);
+
+    m->prompt = malloc(sizeof(char) * strlen(prompt));
+    strcpy(m->prompt, prompt);
+  });
+
+  with_opt_type(minwidth, number, {
+    int minwidth = (int)lua_tonumber(L, -1); // we round down.. who cares
+
+    m->minwidth = minwidth;
+  });
+
+  with_opt_type(position, string, {
+    const char *position = lua_tostring(L, -1);
+
+    if (!strcmp(position, "bottom")) {
+      m->position = POSITION_BOTTOM;
+    } else if (!strcmp(position, "top")) {
+      m->position = POSITION_TOP;
+    } else if (!strcmp(position, "center") ) {
+      m->position = POSITION_CENTER;
+    }
+  });
+
   sprintf(error, "unrecognized option: %s", name);
   throw_option_error(L, error);
 
@@ -128,26 +176,6 @@ void add_config_to_require_path(lua_State *L, char *config_dir) {
   lua_pop(L, 1); // returning to original state
 }
 
-void write_config(lua_State *L, struct menu *m) {
-  lua_getglobal(L, "_tableconfig");
-  if (!lua_istable(L, -1)) {
-    lua_pop(L, 1);
-    return;
-  }
-  lua_pushnil(L);
-  while (lua_next(L, -2)) {
-    lua_pushvalue(L, -2);
-    const char *key = lua_tostring(L, -1);
-    lua_pop(L, 1);
-    if (set_option(L, key, m)) {
-      return;
-    }
-    lua_pop(L, 1);
-  }
-  lua_pop(L, 1);
-  return;
-}
-
 void table_merge_top(lua_State *L) {
   int dest = lua_gettop(L) - 1;
   int src = lua_gettop(L);
@@ -160,12 +188,58 @@ void table_merge_top(lua_State *L) {
   }
 }
 
+void write_config(lua_State *L, struct menu *m) {
+  lua_getglobal(L, GLOBAL_OPTS);
+  lua_getglobal(L, TEMP_OPTS);
+  bool has_global = lua_istable(L, -2);
+  bool has_temp = lua_istable(L, -1);
+
+  debug("has global: %b, has temp: %b\n", has_global, has_temp);
+
+  if (!has_global && !has_temp) {
+    lua_pop(L, 2);
+    return;
+  }
+
+  if (!has_temp) {
+    lua_pop(L, 1); // get rid of the temp table
+  } else if (!has_global) {
+    lua_remove(L, -2);
+  } else {
+    lua_newtable(L);
+    lua_pushvalue(L, -3);
+    table_merge_top(L);
+    lua_pop(L, 1);
+    lua_pushvalue(L, -2);
+    table_merge_top(L);
+    lua_pop(L, 1);
+    lua_remove(L, -2);
+    lua_remove(L, -2);
+  }
+
+  debug("%d\n", lua_gettop(L));
+
+  lua_pushnil(L);
+  while (lua_next(L, -2)) {
+    lua_pushvalue(L, -2);
+    const char *key = lua_tostring(L, -1);
+    debug("do option: %s\n", key)
+    lua_pop(L, 1);
+    if (set_option(L, key, m)) {
+      return;
+    }
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  return;
+}
+
 lua_fn(config) {
   luaL_checktype(L, 1, LUA_TTABLE);
 
-  lua_getglobal(L, "_tableconfig");
+  lua_getglobal(L, GLOBAL_OPTS);
   if (lua_istable(L, -1)) {
-    lua_getglobal(L, "_tableconfig");
+    lua_getglobal(L, GLOBAL_OPTS);
     lua_pushvalue(L, 1);
     table_merge_top(L);
     lua_pop(L, 1);
@@ -173,7 +247,7 @@ lua_fn(config) {
     lua_pushvalue(L, 1);
   }
 
-  lua_setglobal(L, "_tableconfig");
+  lua_setglobal(L, GLOBAL_OPTS);
   lua_pop(L, 1);
 
   return 0;
@@ -211,13 +285,11 @@ lua_fn(menu) {
 
   // allow options to be passed as 2nd parameter
   if (lua_istable(L, 2)) {
-    lua_getglobal(L, "config"); // options fn == -2
-    lua_pushvalue(L, 2);        // options table == -1
-    if (lua_pcall(L, 1, 0, 0)) {
-      lua_error(L);
-    }
-    // now result = -1
+    lua_pushvalue(L, 2);
+  } else {
+    lua_pushnil(L);
   }
+  lua_setglobal(L, TEMP_OPTS);
 
   lua_pushvalue(L, 1); // push table onto stack
 
@@ -225,7 +297,6 @@ lua_fn(menu) {
 
   struct menu *m = menu_create(return_result);
   m->position = POSITION_CENTER;
-  m->minwidth = 400;
 
   write_config(L, m);
 
@@ -237,11 +308,12 @@ lua_fn(menu) {
   }
   m->padding = height / 2;
 
+  m->items = malloc(sizeof (struct item) * len);
   for (int i = 0; i < len; i++) {
     lua_rawgeti(L, -1 * (i + 1), (i + 1));
     luaL_checktype(L, -1, LUA_TSTRING);
     const char *item = lua_tostring(L, -1);
-    menu_add_item(m, strdup(item));
+    unsafe_menu_add_item_no_realloc(m, strdup(item));
   }
 
   pthread_t tid;

@@ -13,9 +13,6 @@ look and feel of dmenu.
 1. Added minimum width flag (-w \[number#\]), which is self explanatory, and only
    applies to centered wmenus.
 
-TODO:
-1. [ ] Update documentation.
-
 ## Installation
 
 Dependencies:

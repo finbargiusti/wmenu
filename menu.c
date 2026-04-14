@@ -193,6 +193,14 @@ void menu_add_item(struct menu *menu, char *text) {
 	menu->item_count++;
 }
 
+// only if you know what you're doing lol
+void unsafe_menu_add_item_no_realloc(struct menu *menu, char *text) {
+	struct item *new = &menu->items[menu->item_count];
+	new->text = text;
+
+	menu->item_count++;
+}
+
 static int compare_items(const void *a, const void *b) {
 	const struct item *item_a = a;
 	const struct item *item_b = b;

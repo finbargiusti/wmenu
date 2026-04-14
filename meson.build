@@ -26,6 +26,19 @@ add_project_arguments(
 	language: 'c',
 )
 
+if get_option('buildtype') == 'debug' 
+	add_project_arguments(
+		cc.get_supported_arguments(
+			[
+			'-O3',
+			'g',
+			'-DIS_DEBUG=true'
+			]
+		),
+		language: 'c'
+	)
+endif
+
 cairo = dependency('cairo')
 pango = dependency('pango')
 pangocairo = dependency('pangocairo')

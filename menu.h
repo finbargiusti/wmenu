@@ -10,6 +10,12 @@
 struct menu;
 typedef void (*menu_callback)(struct menu *menu, char *text, bool exit);
 
+#ifdef IS_DEBUG
+#define debug(...) printf(__VA_ARGS__);
+#else
+#define debug(...) /* debug line */
+#endif
+
 // A menu item.
 struct item {
 	char *text;
@@ -95,6 +101,7 @@ struct menu *menu_create(menu_callback callback);
 void menu_destroy(struct menu *menu);
 void menu_getopts(struct menu *menu, int argc, char *argv[]);
 void menu_add_item(struct menu *menu, char *text);
+void unsafe_menu_add_item_no_realloc(struct menu *menu, char *text);
 void menu_sort_and_deduplicate(struct menu *menu);
 void menu_invalidate(struct menu *menu);
 void menu_render_items(struct menu *menu);

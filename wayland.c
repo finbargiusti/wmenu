@@ -464,10 +464,16 @@ int menu_run(struct menu *menu) {
 	}
 
 
+	calc_widths(menu);
 	if (menu->position == POSITION_CENTER) {
-		calc_widths(menu);
-
-		menu->width = menu->promptw + menu->inputw + 2 * menu->padding;
+		if (menu->lines > 0) {
+			menu->width = menu->promptw + menu->inputw + 2 * menu->padding;
+		} else {
+			menu->width = menu->promptw + menu->inputw + menu->padding * 2 + menu->left_arrow + menu->right_arrow;
+			for (size_t i = 0; i < menu->item_count; i++) {
+				menu->width += menu->items[i].width + 2 * menu->padding;
+			}
+		}
 		menu->width = MAX(menu->width, menu->minwidth); // Ensure minimum width
 		zwlr_layer_surface_v1_set_margin(layer_surface, -1, -1, -1, -1);
 		zwlr_layer_surface_v1_set_size(layer_surface, menu->width, menu->height);
